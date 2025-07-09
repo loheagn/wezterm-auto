@@ -71,5 +71,8 @@ coverage/
 local.conf
 local.config
 
+# Claude Code configuration
+CLAUDE.md
+
 # OS generated files
 *.orig
