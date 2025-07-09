@@ -98,6 +98,10 @@ wezterm-auto/
     └── cli/               # 各种 CLI 命令文档
 ```
 
+## 开发说明
+
+这个项目是在 Claude Code (Anthropic 的 AI 助手) 的协助下协作开发完成的。开发过程包括需求的迭代完善、实现和测试，最终创建了一个强大的 WezTerm 项目管理自动化工具。
+
 ## 贡献
 
 欢迎提交 Issues 和 Pull Requests 来改进这个项目。

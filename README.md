@@ -101,6 +101,10 @@ wezterm-auto/
     └── cli/               # Various CLI command documentation
 ```
 
+## Development
+
+This project was developed collaboratively with the assistance of Claude Code (Anthropic's AI assistant). The development process involved iterative refinement of requirements, implementation, and testing to create a robust automation tool for WezTerm project management.
+
 ## Contributing
 
 Issues and Pull Requests are welcome to improve this project.
