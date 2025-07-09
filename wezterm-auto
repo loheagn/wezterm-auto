@@ -1,0 +1,150 @@
+#!/bin/bash
+
+set -e
+
+PROJECT_PATH="$1"
+
+if [ -z "$PROJECT_PATH" ]; then
+    echo "Usage: $0 <project_path>"
+    echo "Example: $0 ~/projects/my-app"
+    exit 1
+fi
+
+find_existing_pane() {
+    local target_path="$1"
+    target_path=$(realpath "$target_path" 2>/dev/null || echo "$target_path")
+    
+    wezterm cli list --format json 2>/dev/null | jq -r --arg target_path "$target_path" '
+        .[] | select(.cwd and (.cwd | type == "string") and (.cwd | test("^file://"))) | 
+        .cwd |= sub("^file://[^/]*"; "") |
+        select(.cwd == $target_path or (.cwd | rtrimstr("/")) == ($target_path | rtrimstr("/"))) |
+        "\(.window_id):\(.tab_id):\(.pane_id)"
+    ' | head -n 1
+}
+
+fuzzy_match_project() {
+    local input_path="$1"
+    
+    if [ -d "$input_path" ]; then
+        echo "$input_path"
+        return 0
+    fi
+    
+    local expanded_path=$(eval echo "$input_path" 2>/dev/null || echo "$input_path")
+    if [ -d "$expanded_path" ]; then
+        echo "$expanded_path"
+        return 0
+    fi
+    
+    # 1. 首先查找完全匹配的目录名
+    local exact_match=$(find "$HOME" -maxdepth 1 -type d -name "$input_path" 2>/dev/null | head -n 1)
+    if [ -n "$exact_match" ]; then
+        echo "$exact_match"
+        return 0
+    fi
+    
+    # 2. 然后查找以输入开头的目录
+    local prefix_match=$(find "$HOME" -maxdepth 1 -type d -name "$input_path*" 2>/dev/null | head -n 1)
+    if [ -n "$prefix_match" ]; then
+        echo "$prefix_match"
+        return 0
+    fi
+    
+    # 3. 最后才进行包含匹配
+    local contains_match=$(find "$HOME" -maxdepth 1 -type d -name "*$input_path*" 2>/dev/null | head -n 1)
+    if [ -n "$contains_match" ]; then
+        echo "$contains_match"
+        return 0
+    fi
+    
+    echo "$input_path"
+    return 1
+}
+
+activate_existing_pane() {
+    local pane_info="$1"
+    local window_id=$(echo "$pane_info" | cut -d: -f1)
+    local tab_id=$(echo "$pane_info" | cut -d: -f2)
+    local pane_id=$(echo "$pane_info" | cut -d: -f3)
+    
+    wezterm cli activate-pane --pane-id "$pane_id"
+    
+    osascript -e '
+        tell application "System Events"
+            tell application "WezTerm" to activate
+        end tell
+    '
+}
+
+create_new_session() {
+    local project_path="$1"
+    local project_name=$(basename "$project_path")
+    
+    local wezterm_was_running=true
+    if ! pgrep -f "WezTerm" > /dev/null; then
+        echo "Starting WezTerm..."
+        open -a WezTerm
+        sleep 2
+        wezterm_was_running=false
+    fi
+    
+    local window_list=$(wezterm cli list --format json 2>/dev/null)
+    
+    if [ "$wezterm_was_running" = false ] && [ "$window_list" != "[]" ] && [ -n "$window_list" ]; then
+        local existing_pane_id=$(echo "$window_list" | jq -r '.[0].pane_id')
+        cd "$project_path"
+        wezterm cli send-text --pane-id "$existing_pane_id" --no-paste "cd $(printf '%q' "$project_path") && nvim ."$'\r'
+        pane_id="$existing_pane_id"
+    else
+        pane_id=$(wezterm cli spawn --cwd "$project_path" -- nvim .)
+    fi
+    
+    if [ -n "$pane_id" ]; then
+        wezterm cli set-tab-title "$project_name" --pane-id "$pane_id"
+        if [ "$wezterm_was_running" = false ]; then
+            wezterm cli set-window-title "$project_name" --pane-id "$pane_id"
+        fi
+        
+        osascript -e '
+            tell application "System Events"
+                tell application "WezTerm" to activate
+            end tell
+        '
+        
+        if [ "$wezterm_was_running" = false ]; then
+            sleep 0.5
+            osascript -e '
+                tell application "System Events"
+                    tell application "WezTerm" to activate
+                    delay 0.2
+                    tell (1st window of (first application process whose frontmost is true))
+                        set value of attribute "AXFullScreen" to true
+                    end tell
+                end tell
+            '
+        fi
+    fi
+}
+
+main() {
+    local resolved_path=$(fuzzy_match_project "$PROJECT_PATH")
+    
+    if [ ! -d "$resolved_path" ]; then
+        echo "Error: Project path not found: $resolved_path"
+        exit 1
+    fi
+    
+    echo "Using project path: $resolved_path"
+    
+    local existing_pane=$(find_existing_pane "$resolved_path")
+    
+    if [ -n "$existing_pane" ]; then
+        echo "Found existing session, activating..."
+        activate_existing_pane "$existing_pane"
+    else
+        echo "Creating new session..."
+        create_new_session "$resolved_path"
+    fi
+}
+
+main "$@"
